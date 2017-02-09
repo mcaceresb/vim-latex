@@ -1,7 +1,7 @@
 "=============================================================================
 " 	     File: folding.vim
 "      Author: Srinath Avadhanula
-"      		   modifications/additions by Zhang Linbo, Gerd Wachsmuth
+"      		   modifications/additions by Zhang Linbo
 "     Created: Tue Apr 23 05:00 PM 2002 PST
 " 
 "  Description: functions to interact with Syntaxfolds.vim
@@ -25,11 +25,8 @@ function! Tex_SetFoldOptions()
 
 	setlocal foldtext=TexFoldTextFunction()
 
-	if g:Tex_Folding
+	if g:Tex_Folding && g:Tex_AutoFolding
 		call MakeTexFolds(0)
-		if !g:Tex_AutoFolding
-			normal! zR
-		endif
 	endif
 
 	let s:ml = '<Leader>'
@@ -38,6 +35,7 @@ function! Tex_SetFoldOptions()
 
 endfunction " }}}
 " Tex_FoldSections: creates section folds {{{
+" Author: Zhang Linbo
 " Description:
 " 	This function takes a comma seperated list of "sections" and creates fold
 " 	definitions for them. The first item is supposed to be the "shallowest" field
@@ -57,19 +55,17 @@ function! Tex_FoldSections(lst, endpat)
 	else
 		let pattern = ''
 		let prefix = ''
-		for label in split( s, "|" )
-			let pattern .= prefix . '\\' . label . '\|' . '%%fake' . label
-			let prefix = '\|'
+		for label in split(s, "|")
+			let pattern .= prefix . '^\s*\\' . label . '\W\|^\s*%%fake' . label
+			let prefix = '\W\|'
 		endfor
-		" The line before the pattern could contain a mixture of "% =_" (within a
-		" comment).
-		" The pattern itself is ended by a non-word character "\W" or a newline.
-		let s = '^\%(%[% =-]*\n\)\?\s*' . '\%(' . pattern . '\)' . '\%(\W\|\n\)'
+		let s = pattern
 	endif
 	let endpat = s . '\|' . a:endpat
 	if i > 0
 		call Tex_FoldSections(strpart(a:lst,i+1), endpat)
 	endif
+	let endpat = '^\s*\\appendix\W\|' . endpat
 	call AddSyntaxFoldItem(s, endpat, 0, -1)
 endfunction
 " }}}
@@ -109,7 +105,7 @@ function! MakeTexFolds(force)
 	" requires a regexp which will match unbalanced curly braces and that is
 	" apparently not doable with regexps.
 	let s = ''
-	if !exists('g:Tex_FoldedCommands')
+    if !exists('g:Tex_FoldedCommands')
 		let g:Tex_FoldedCommands = s
 	elseif g:Tex_FoldedCommands[0] == ','
 		let g:Tex_FoldedCommands = s . g:Tex_FoldedCommands
@@ -119,7 +115,7 @@ function! MakeTexFolds(force)
 
 	let s = 'verbatim,comment,eq,gather,align,figure,table,thebibliography,'
 			\. 'keywords,abstract,titlepage'
-	if !exists('g:Tex_FoldedEnvironments')
+    if !exists('g:Tex_FoldedEnvironments')
 		let g:Tex_FoldedEnvironments = s
 	elseif g:Tex_FoldedEnvironments[0] == ','
 		let g:Tex_FoldedEnvironments = s . g:Tex_FoldedEnvironments
@@ -127,7 +123,7 @@ function! MakeTexFolds(force)
 		let g:Tex_FoldedEnvironments = g:Tex_FoldedEnvironments . s
 	endif
 	
-	if !exists('g:Tex_FoldedSections')
+    if !exists('g:Tex_FoldedSections')
 		let g:Tex_FoldedSections = 'part,chapter,section,'
 								\. 'subsection,subsubsection,paragraph'
 	endif
@@ -288,17 +284,12 @@ function! MakeTexFolds(force)
 					" terminated on the same line will not start a fold.
 					" However, it will also refuse to fold certain commands
 					" which have not terminated. eg:
-					" 	\commandname{something \textbf{text} and
+					" 	\commandname{something \bf{text} and 
 					" will _not_ start a fold.
 					" In other words, the pattern is safe, but not exact.
 					call AddSyntaxFoldItem('^\s*\\'.s.'{[^{}]*$','^[^}]*}',0,0)
 				else
-					if s =~ 'itemize\|enumerate\|description'
-						" These environments can nest.
-						call AddSyntaxFoldItem('^\s*\\begin{'.s,'\(^\|\s\)\s*\\end{'.s,0,0,'^\s*\\begin{'.s,'\(^\|\s\)\s*\\end{'.s)
-					else
-						call AddSyntaxFoldItem('^\s*\\begin{'.s,'\(^\|\s\)\s*\\end{'.s,0,0,'','')
-					endif
+					call AddSyntaxFoldItem('^\s*\\begin{'.s,'\(^\|\s\)\s*\\end{'.s,0,0)
 				endif
 			endif
 		endwhile
@@ -309,10 +300,9 @@ function! MakeTexFolds(force)
 	" Sections {{{
 	if g:Tex_FoldedSections != '' 
 		call Tex_FoldSections(g:Tex_FoldedSections,
-			\ '^\s*\\\%(frontmatter\|mainmatter\|backmatter\)\|'
+			\ '^\s*\\frontmatter\|^\s*\\mainmatter\|^\s*\\backmatter\|'
 			\. '^\s*\\begin{thebibliography\|>>>\|^\s*\\endinput\|'
-			\. '^\s*\\begin{slide\|^\s*\\\%(begin\|end\){document\|'
-			\. '^\s*\\\%(\%(begin\|end\){appendix}\|appendix\)')
+			\. '^\s*\\begin{slide\|^\s*\\end{document')
 	endif
 	" }}} 
 	
@@ -350,25 +340,16 @@ function! MakeTexFolds(force)
 	" }}}
 	
 	call MakeSyntaxFolds(a:force)
+	normal! zv
 endfunction
 
 " }}}
 " TexFoldTextFunction: create fold text for folds {{{
 function! TexFoldTextFunction()
-	" The dashes indicating the foldlevel together with
-	" the number of lines are aligned to width '7'.
-	let lines = v:foldend - v:foldstart + 1
-	let myfoldtext = repeat('-', v:foldlevel-1) . '+'
-				\. repeat(' ', 7-(v:foldlevel-1)-len(lines))
-				\. lines . ' lines: '
-
-	" Add some indent per foldlevel
-	let myfoldtext .= repeat('> ', v:foldlevel-1)
-
+	let leadingSpace = matchstr('                                       ', ' \{,'.indent(v:foldstart).'}')
 	if getline(v:foldstart) =~ '^\s*\\begin{'
 		let header = matchstr(getline(v:foldstart),
 							\ '^\s*\\begin{\zs\([:alpha:]*\)[^}]*\ze}')
-		let title = ''
 		let caption = ''
 		let label = ''
 		let i = v:foldstart
@@ -389,142 +370,40 @@ function! TexFoldTextFunction()
 				" :FIXME: this does not work when \label contains a
 				" newline or a }-character
 				let label = substitute(label, '\([^}]*\)}.*$', '\1', '')
-			elseif header =~ 'frame' && getline(i) =~ '\\begin{frame}.*{[^{}]*}\|\\frametitle\|%'
-				if getline(i) =~ '\\begin{frame}'
-					" The first argument inside {} is the frame title (the
-					" second one is a subtitle)
-					let title = matchstr(getline(i), '\\begin{frame}.\{-}{\zs[^{}]*\ze}')
-				elseif getline(i) =~ '\\frametitle'
-					let title = matchstr(getline(i), '\\frametitle{\zs[^}]*\ze}')
-				elseif getline(i) =~ '%' && title == ''
-					let title = substitute(getline(i), '^\(\s\|%\)*', '', '')
-				endif
 			end
 
 			let i = i + 1
 		endwhile
 
-		if header =~ 'frame'
-			if title == ''
-				let title = getline(v:foldstart + 1)
-			end
-			" Count frames
-			let frnum = 0
-			for line in getline(1,v:foldstart)
-				if line =~ '\\begin{frame}'
-					let frnum=frnum+1
-				endif
-			endfor
-			" Pad with spaces to length 2
-			let frnum = repeat(' ', 2-len(frnum)) . frnum
-			return myfoldtext . ': Frame ' . frnum . ': ' . title
-		end
-
+		let ftxto = foldtext()
 		" if no caption found, then use the second line.
 		if caption == ''
 			let caption = getline(v:foldstart + 1)
 		end
 
-		return myfoldtext . header.  ' ('.label.'): '.caption
+		let retText = matchstr(ftxto, '^[^:]*').': '.header.
+						\ ' ('.label.'): '.caption
+		return leadingSpace.retText
 
-	elseif getline(v:foldstart) =~ '^\s*%\+[% =-]*$'
-		" Useless comment. Use the next line.
-		return myfoldtext . getline(v:foldstart+1)
-	elseif getline(v:foldstart) =~ '^\s*%%fake'
-		" Just strip one '%' from the fakesection.
-		return myfoldtext . substitute(getline(v:foldstart), '^\s*%%fake', '%', '')
-	elseif getline(v:foldstart) =~ '^\s*%'
-		" It's any other comment. Use it.
-		return myfoldtext . getline(v:foldstart)
+	elseif getline(v:foldstart) =~ '^%' && getline(v:foldstart) !~ '^%%fake'
+		let ftxto = foldtext()
+		let foldSize = 1 + v:foldend - v:foldstart
+		return leadingSpace.substitute(ftxto, ':', ': % ', '')
+
 	elseif getline(v:foldstart) =~ '^\s*\\document\(class\|style\).*{'
-		" This is the preamble.
-		return myfoldtext . 'Preamble: ' . getline(v:foldstart)
-	end
+		let ftxto = leadingSpace.foldtext()
+		let foldSize = 1 + v:foldend - v:foldstart
+		let lineCount = line("$")
+		let foldPercentage = printf("[%.1f", (foldSize*1.0)/lineCount*100) . "%]"
+		return substitute(ftxto, ':', ' '.foldPercentage.': Preamble:', '')
 
-	let section_pattern = substitute(g:Tex_FoldedSections, ',\||', '\\|', 'g')
-	let section_pattern = '\\\%(' . section_pattern .'\)\>'
-
-	if getline(v:foldstart) =~ '^\s*' . section_pattern
-		" This is a section. Search for the content of the mandatory argument {...}
-		let type = matchstr(getline(v:foldstart), '^\s*\zs' . section_pattern)
-		let idx = match(getline(v:foldstart), '^\s*' . section_pattern . '\zs')
-
-		return myfoldtext . type . ParseSectionTitle(v:foldstart, idx)
 	else
-		" This is something.
-		return myfoldtext . getline(v:foldstart)
+		let ftxto = leadingSpace.foldtext()
+		let foldSize = 1 + v:foldend - v:foldstart
+		let lineCount = line("$")
+		let foldPercentage = printf("[%.1f", (foldSize*1.0)/lineCount*100) . "%]"
+		return substitute(ftxto, ':', ' '.foldPercentage.':', '')
 	end
-endfunction
-" }}}
-" s:ParseSectionTitle: create fold text for sections {{{
-" Search for the mandatory argument of the \section command and ignore the
-" optional argument.
-function! ParseSectionTitle(foldstart, idx)
-	let currlinenr = a:foldstart
-	let currline = s:StripLine(getline(currlinenr))
-	let currlinelen = strlen(currline)
-
-	let index = a:idx
-
-	let maxlines = 10
-
-	" Current depth of nested [] and {}:
-	let currdepth = 0
-	" Do we have found the mandatory argument?
-	" (We are looking for '{' at depth 0)
-	let found_mandatory = 0
-
-	let string = ''
-
-	while (currdepth > 0) || !found_mandatory
-		if index >= currlinelen
-			" Read a new line.
-			let maxlines = maxlines - 1
-			if maxlines < 0
-				return string . ' Scanned to many lines'
-			endif
-			let currlinenr = currlinenr + 1
-			let currline = s:StripLine(getline(currlinenr))
-			let currlinelen = strlen(currline)
-
-			let index = 0
-
-			if found_mandatory
-				let string .= ' '
-			endif
-			continue
-		endif
-
-		" Look for [] and {}
-		if currline[index] =~ '[[{]'
-			if(currdepth == 0) && (currline[index] =~ '{')
-				let found_mandatory = 1
-			end
-			let currdepth += 1
-		elseif currline[index] =~ '[]}]'
-			let currdepth -= 1
-		endif
-
-		if found_mandatory
-			let string .= currline[index]
-		endif
-
-		let index = index + 1
-	endwhile
-
-	return string
-endfunction
-" }}}
-" s:StripLine: strips whitespace and comments {{{
-function! s:StripLine( string )
-	let string = matchstr( a:string, '^\s*\zs.*$')
-	let comment = match( string, '\\\@<!\%(\\\\\)*\zs%')
-	if comment > 0
-		let string = string[0:comment-1]
-	elseif comment == 0
-		let string = ''
-	endif
-	return string
 endfunction
 " }}}
 

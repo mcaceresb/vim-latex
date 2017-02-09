@@ -287,7 +287,7 @@ function! Tex_ViewLaTeX()
 
 		else
 
-			let execString = s:viewer.' $*.'.s:target
+			let execString = s:viewer.' "$*.'.s:target.'"'
 
 		endif
 
@@ -348,47 +348,36 @@ function! Tex_ForwardSearchLaTeX()
 	let l:origdir = fnameescape(getcwd())
 
 	let mainfnameRoot = fnameescape(fnamemodify(Tex_GetMainFileName(), ':t:r'))
-	let mainfnameFull = fnameescape(Tex_GetMainFileName(':p:r'))
-	let target_file = mainfnameFull . "." . s:target
-	let sourcefile = fnameescape(expand('%'))
-	let sourcefileFull = fnameescape(expand('%:p'))
+	let mainfnameFull = Tex_GetMainFileName(':p:r')
+	let target_file = shellescape(mainfnameFull . "." . s:target)
+	let sourcefile = shellescape(expand('%'))
+	let sourcefileFull = shellescape(expand('%:p'))
 	let linenr = line('.')
 	" cd to the location of the file to avoid problems with directory name
 	" containing spaces.
 	call Tex_CD(Tex_GetMainFileName(':p:h'))
 
-	" inverse search tips taken from Dimitri Antoniou's tip and Benji Fisher's
+	" inverse ag search tips taken from Dimitri Antoniou's tip and Benji Fisher's
 	" tips on vim.sf.net (vim.sf.net tip #225)
 	let execString = 'silent! !'
-	if (has('win32'))
-		if (viewer =~? '^ *yap\( \|$\)')
-			let execString .= Tex_Stringformat('start %s -s %s%s %s', viewer, linenr, sourcefile, mainfnameRoot)
+	if (has('win32') && (viewer =~? '^ *yap\( \|$\)'))
 
-		" SumatraPDF forward search support added by Dieter Castel:
-		elseif (viewer =~? "^sumatrapdf")
-			" Forward search in sumatra has these arguments (-reuse-instance is optional):
-			" SumatraPDF -reuse-instance "pdfPath" -forward-search "texPath" lineNumber
-			let execString .= Tex_Stringformat('start %s "%s" -forward-search "%s" %s', viewer, target_file, sourcefileFull, linenr)
-		endif	
+		let execString .= Tex_Stringformat('start %s -s %s%s %s', viewer, linenr, sourcefile, mainfnameRoot)
 
-	elseif (has('macunix') && (viewer =~ '\(Skim\|PDFView\|TeXniscope\)'))
+	elseif (has('macunix') && (viewer =~ '^ *\(Skim\|PDFView\|TeXniscope\)\( \|$\)'))
 		" We're on a Mac using a traditional Mac viewer
 
-		if viewer =~ 'Skim'
+		if viewer =~ '^ *Skim'
 
-			if executable('displayline')
-				let execString .= 'displayline '
-			else
 				let execString .= '/Applications/Skim.app/Contents/SharedSupport/displayline '
-			endif
 				let execString .= join([linenr, target_file, sourcefileFull])
 
-		elseif viewer =~ 'PDFView'
+		elseif viewer =~ '^ *PDFView'
 
 				let execString .= '/Applications/PDFView.app/Contents/MacOS/gotoline.sh '
 				let execString .= join([linenr, target_file, sourcefileFull])
 
-		elseif viewer =~ 'TeXniscope'
+		elseif viewer =~ '^ *TeXniscope'
 
 				let execString .= '/Applications/TeXniscope.app/Contents/Resources/forward-search.sh '
 				let execString .= join([linenr, sourcefileFull, target_file])
@@ -399,7 +388,7 @@ function! Tex_ForwardSearchLaTeX()
 		" We're either UNIX or Mac and using a UNIX-type viewer
 
 		" Check for the special DVI viewers first
-		if viewer =~ '^ *\(xdvi\|xdvik\|kdvi\|okular\|zathura\)\( \|$\)'
+		if viewer =~ '^ *\(xdvi\|xdvik\|kdvi\|okular\)\( \|$\)'
 			let execString .= viewer." "
 
 			if Tex_GetVarValue('Tex_UseEditorSettingInDVIViewer') == 1 &&
@@ -420,22 +409,13 @@ function! Tex_ForwardSearchLaTeX()
 
 				let execString .= Tex_Stringformat('--unique %s\#src:%s%s', target_file, linenr, sourcefileFull)
 
-			elseif viewer =~ '^ *zathura'
-
-				let execString .= Tex_Stringformat('--synctex-forward %s:1:%s %s', linenr, sourcefileFull, target_file)
-
 			endif
 
-		elseif (viewer == "synctex_wrapper" )
-			" Unix + synctex_wrapper
-			" You can add a custom script named 'synctex_wrapper' in your $PATH
-			" syntax is: synctex_wrapper TARGET_FILE LINE_NUMBER COLUMN_NUMBER SOURCE_FILE
-			let execString .= Tex_Stringformat('synctex_wrapper %s %s %s %s', target_file, linenr, col('.'), sourcefile)
 		else
 			" We must be using a generic UNIX viewer
 			" syntax is: viewer TARGET_FILE LINE_NUMBER SOURCE_FILE
 
-			let execString .= join([viewer, target_file, linenr, sourcefile])
+			let execString .= join([target_file, linenr, sourcefile])
 
 		endif
 
@@ -597,10 +577,9 @@ function! Tex_CompileMultipleTimes()
 			let needToRerun = 1
 		endif
 
-		" The first time we see if we need to generate the bibliography and if the .bbl file
+		" The first time we see if we need to run bibtex and if the .bbl file
 		" changes, we will rerun latex.
-		" We use '\\bibdata' as a check for BibTeX and '\\abx' as a check for biber.
-		if runCount == 0 && Tex_IsPresentInFile('\\bibdata|\\abx', mainFileName_root.'.aux')
+		if runCount == 0 && Tex_IsPresentInFile('\\bibdata', mainFileName_root.'.aux')
 			let bibFileName = mainFileName_root.'.bbl'
 
 			let biblinesBefore = Tex_CatFile(bibFileName)
